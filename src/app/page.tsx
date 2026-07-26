@@ -7,7 +7,7 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 export default async function DashboardPage() {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   // Fetch topics
   const { data: topics } = await supabase

@@ -14,7 +14,7 @@ export type CsvRow = {
 }
 
 export async function processUpload(parsedData: CsvRow[]) {
-  const supabase = createClient()
+  const supabase = await createClient()
   
   // 1. Grouper par thread_id
   const groups: Record<string, CsvRow[]> = {}

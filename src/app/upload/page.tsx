@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [progress, setProgress] = useState('')
   const router = useRouter()
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -24,26 +25,52 @@ export default function UploadPage() {
     if (!file) return
 
     setIsUploading(true)
+    setProgress('Lecture du fichier...')
+    
     Papa.parse<CsvRow>(file, {
       header: true,
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const res = await processUpload(results.data)
-          if (res.success) {
-            toast.success("Import réussi", { description: res.message })
-            router.push('/')
+          // Grouper par thread_id
+          const groups: Record<string, CsvRow[]> = {}
+          results.data.forEach(row => {
+            if (row.thread_id) {
+              if (!groups[row.thread_id]) groups[row.thread_id] = []
+              groups[row.thread_id].push(row)
+            }
+          })
+          
+          const allThreads = Object.values(groups)
+          const chunkSize = 20 // 20 topics maximum par requête serveur pour éviter les Timeouts sur Vercel
+          const totalChunks = Math.ceil(allThreads.length / chunkSize)
+          
+          for (let i = 0; i < allThreads.length; i += chunkSize) {
+            const currentChunk = Math.floor(i / chunkSize) + 1
+            setProgress(`Importation... (Lot ${currentChunk} sur ${totalChunks})`)
+            
+            const chunk = allThreads.slice(i, i + chunkSize).flat()
+            const res = await processUpload(chunk)
+            
+            if (!res.success) {
+              throw new Error("Erreur serveur lors de l'import d'un lot.")
+            }
           }
-        } catch (error) {
-          toast.error("Erreur lors de l'import", { description: "Une erreur est survenue côté serveur." })
+          
+          toast.success("Import complètement réussi !")
+          router.push('/')
+        } catch (error: any) {
+          toast.error("Erreur d'import", { description: error.message })
           console.error(error)
         } finally {
           setIsUploading(false)
+          setProgress('')
         }
       },
       error: (error) => {
         toast.error("Erreur de lecture CSV", { description: error.message })
         setIsUploading(false)
+        setProgress('')
       }
     })
   }
@@ -56,7 +83,7 @@ export default function UploadPage() {
         <CardHeader>
           <CardTitle>Glisser-déposer ou sélectionner un fichier</CardTitle>
           <CardDescription>
-            Le fichier CSV doit contenir les colonnes : thread_id, is_topic, title, content, username, category_id, scheduled_at.
+            Le fichier CSV sera traité par petits lots (batchs) automatiquement pour éviter de bloquer le serveur.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -82,6 +109,13 @@ export default function UploadPage() {
                 <span className="font-medium">{file.name}</span>
               </div>
               <span className="text-sm">{(file.size / 1024).toFixed(2)} KB</span>
+            </div>
+          )}
+
+          {progress && (
+            <div className="mt-4 text-sm font-medium text-blue-600 dark:text-blue-400 text-center flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              {progress}
             </div>
           )}
         </CardContent>
